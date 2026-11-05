@@ -56,6 +56,7 @@ def launch_desktop(host: str = "127.0.0.1", port: Optional[int] = None) -> int:
         host=host,
         port=active_port,
         log_level="error",
+        log_config=None,  # Bypasses Uvicorn colourized stream formatters in windowed GUI mode
         access_log=False,
         reload=False,
     )

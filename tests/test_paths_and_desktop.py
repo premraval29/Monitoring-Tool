@@ -59,5 +59,39 @@ class TestPathsAndDesktop(unittest.TestCase):
         self.assertGreater(port, 1024)
         self.assertLess(port, 65536)
 
+    def test_windowed_uvicorn_config_resilience(self):
+        """Tests that uvicorn server config initializes without error when stdout/stderr are None."""
+        import uvicorn
+        from app.main import app
+        from hooks.pyinstaller_runtime_hook import NullWriter
+
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        try:
+            # Simulate Windows windowed mode
+            sys.stdout = None
+            sys.stderr = None
+
+            # Runtime hook behavior
+            if sys.stdout is None:
+                sys.stdout = NullWriter()
+            if sys.stderr is None:
+                sys.stderr = NullWriter()
+
+            cfg = uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=54321,
+                log_level="error",
+                log_config=None,
+                access_log=False,
+                reload=False,
+            )
+            server = uvicorn.Server(cfg)
+            self.assertIsNotNone(server)
+            self.assertIsNone(cfg.log_config)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
 if __name__ == "__main__":
     unittest.main()

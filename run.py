@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
 import sys
+
+# Windowed GUI safeguard (console=False in PyInstaller):
+# Provide dummy stream if sys.stdout/sys.stderr are None to prevent AttributeError: 'NoneType' object has no attribute 'isatty'
+if sys.stdout is None or not hasattr(sys.stdout, "isatty"):
+    class _NullWriter:
+        def write(self, *a, **k): pass
+        def flush(self, *a, **k): pass
+        def isatty(self): return False
+    sys.stdout = _NullWriter()
+
+if sys.stderr is None or not hasattr(sys.stderr, "isatty"):
+    class _NullWriter:
+        def write(self, *a, **k): pass
+        def flush(self, *a, **k): pass
+        def isatty(self): return False
+    sys.stderr = _NullWriter()
+
 import argparse
 import platform
 import uvicorn
