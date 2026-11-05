@@ -173,7 +173,7 @@
           <div id="cpu-progress-bar" class="bg-indigo-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
         </div>
         <div class="flex justify-between items-center text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
-          <span>Load Avg:</span>
+          <span id="cpu-load-label">Load Avg:</span>
           <span id="cpu-load-avg" class="font-mono text-slate-300">0.0, 0.0, 0.0</span>
         </div>
       </div>
@@ -192,13 +192,13 @@
           <span id="ram-usage-text" class="text-xs text-slate-400">0.00 / 0.00 GB</span>
         </div>
 
-        <!-- Activity Monitor Breakdown Pills (App / Wired / Comp / Cache / Swap) -->
+        <!-- Activity Monitor / Windows Memory Breakdown Pills -->
         <div class="grid grid-cols-5 gap-1 text-[9px] font-mono mt-2 text-slate-400 text-center">
-          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="App Memory">App: <strong id="ram-app-val" class="text-emerald-400">--</strong></span>
-          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Wired Memory">Wire: <strong id="ram-wired-val" class="text-amber-400">--</strong></span>
-          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Compressed Memory">Comp: <strong id="ram-comp-val" class="text-purple-400">--</strong></span>
-          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Cached Files">Cache: <strong id="ram-cached-val" class="text-slate-300">--</strong></span>
-          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Swap Used">Swap: <strong id="ram-swap-used-val" class="text-sky-300">--</strong></span>
+          <span id="ram-pill-app" class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="App Memory"><span id="ram-pill-app-label">App</span>: <strong id="ram-app-val" class="text-emerald-400">--</strong></span>
+          <span id="ram-pill-wired" class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Wired Memory"><span id="ram-pill-wired-label">Wire</span>: <strong id="ram-wired-val" class="text-amber-400">--</strong></span>
+          <span id="ram-pill-comp" class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Compressed Memory"><span id="ram-pill-comp-label">Comp</span>: <strong id="ram-comp-val" class="text-purple-400">--</strong></span>
+          <span id="ram-pill-cached" class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Cached Files"><span id="ram-pill-cached-label">Cache</span>: <strong id="ram-cached-val" class="text-slate-300">--</strong></span>
+          <span id="ram-pill-swap" class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Swap Used"><span id="ram-pill-swap-label">Swap</span>: <strong id="ram-swap-used-val" class="text-sky-300">--</strong></span>
         </div>
 
         <!-- Progress bar -->

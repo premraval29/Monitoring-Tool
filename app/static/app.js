@@ -514,7 +514,16 @@ function handleMetricsUpdate(metrics) {
     if (idleEl && cpu.idle_percent !== undefined) idleEl.textContent = `${cpu.idle_percent}%`;
 
     if (cpu.load_avg) {
-      document.getElementById('cpu-load-avg').textContent = cpu.load_avg.map(v => v.toFixed(2)).join(', ');
+      const loadLabelEl = document.getElementById('cpu-load-label');
+      const loadAvgEl = document.getElementById('cpu-load-avg');
+      const isWin = (window.currentSystemInfo?.os || '').toLowerCase().includes('win');
+      if (isWin && cpu.process_count) {
+        if (loadLabelEl) loadLabelEl.textContent = 'Procs / Threads:';
+        loadAvgEl.textContent = `${cpu.process_count} / ${cpu.thread_count ? cpu.thread_count.toLocaleString() : '--'}`;
+      } else {
+        if (loadLabelEl) loadLabelEl.textContent = 'Load Avg:';
+        loadAvgEl.textContent = cpu.load_avg.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ');
+      }
     }
 
     if (cpu.per_core_percent) {
@@ -549,12 +558,46 @@ function handleMetricsUpdate(metrics) {
     else if (ram.memory_pressure === 'Warning' || ram.percent >= 90) ramBar.className = 'bg-amber-500 h-2 rounded-full transition-all duration-300';
     else ramBar.className = 'bg-emerald-500 h-2 rounded-full transition-all duration-300';
 
-    // Activity Monitor breakdown pills
+    // Activity Monitor / Windows breakdown pills
+    const isWin = (window.currentSystemInfo?.os || '').toLowerCase().includes('win');
     const appEl = document.getElementById('ram-app-val');
     const wiredEl = document.getElementById('ram-wired-val');
     const compEl = document.getElementById('ram-comp-val');
     const cacheEl = document.getElementById('ram-cached-val');
     const swapUsedEl = document.getElementById('ram-swap-used-val');
+
+    const appLabel = document.getElementById('ram-pill-app-label');
+    const wiredLabel = document.getElementById('ram-pill-wired-label');
+    const compLabel = document.getElementById('ram-comp-label');
+    const cacheLabel = document.getElementById('ram-pill-cached-label');
+    const swapLabel = document.getElementById('ram-pill-swap-label');
+
+    const appPill = document.getElementById('ram-pill-app');
+    const wiredPill = document.getElementById('ram-pill-wired');
+    const compPill = document.getElementById('ram-pill-comp');
+    const cachePill = document.getElementById('ram-pill-cached');
+    const swapPill = document.getElementById('ram-pill-swap');
+
+    if (isWin) {
+      if (appLabel) appLabel.textContent = 'In Use';
+      if (wiredLabel) wiredLabel.textContent = 'Pool';
+      if (compLabel) compLabel.textContent = 'Paged';
+      if (cacheLabel) cacheLabel.textContent = 'Cache';
+      if (swapLabel) swapLabel.textContent = 'Paging';
+
+      if (appPill) appPill.title = 'In Use (Active Working Set)';
+      if (wiredPill) wiredPill.title = 'Non-paged Pool (Kernel pinned)';
+      if (compPill) compPill.title = 'Paged Pool';
+      if (cachePill) cachePill.title = 'Standby System File Cache';
+      if (swapPill) swapPill.title = 'Pagefile on disk';
+    } else {
+      if (appLabel) appLabel.textContent = 'App';
+      if (wiredLabel) wiredLabel.textContent = 'Wire';
+      if (compLabel) compLabel.textContent = 'Comp';
+      if (cacheLabel) cacheLabel.textContent = 'Cache';
+      if (swapLabel) swapLabel.textContent = 'Swap';
+    }
+
     if (appEl && ram.app_memory_human) appEl.textContent = ram.app_memory_human;
     if (wiredEl && ram.wired_memory_human) wiredEl.textContent = ram.wired_memory_human;
     if (compEl && ram.compressed_memory_human) compEl.textContent = ram.compressed_memory_human;
@@ -974,11 +1017,17 @@ function renderModalChartFromData(type, param, timelineRange, points, summary = 
     const perCore = cpuObj.per_core_percent || [];
     const loadAvg = cpuObj.load_avg || [0, 0, 0];
 
+    const isWin = (window.currentSystemInfo?.os || '').toLowerCase().includes('win');
+    let loadAvgLabel = `Load Avg: ${loadAvg.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ')}`;
+    if (isWin && cpuObj.process_count) {
+      loadAvgLabel = `Processes: ${cpuObj.process_count} • Threads: ${cpuObj.thread_count ? cpuObj.thread_count.toLocaleString() : '--'}${cpuObj.handle_count ? ' • Handles: ' + cpuObj.handle_count.toLocaleString() : ''}`;
+    }
+
     subBreakdown.innerHTML = `
       <div class="bg-slate-800/30 border border-slate-800 rounded-2xl p-4">
         <div class="flex items-center justify-between mb-3">
           <span class="text-xs uppercase font-semibold text-slate-300">Current Per-Core Workload Distribution</span>
-          <span class="text-xs font-mono text-slate-400">Load Avg: ${loadAvg.map(v => typeof v === 'number' ? v.toFixed(2) : v).join(', ')}</span>
+          <span class="text-xs font-mono text-slate-400">${loadAvgLabel}</span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
           ${perCore.map((p, idx) => {
@@ -1043,6 +1092,8 @@ function renderModalChartFromData(type, param, timelineRange, points, summary = 
     const ram = latestLive.system?.ram || {};
     const osType = (window.currentSystemInfo?.os || '').toLowerCase();
     let ramSubtitle = 'Virtual Memory Counters';
+    let breakdownCards = '';
+
     if (osType.includes('darwin') || osType.includes('mac')) {
       ramSubtitle = 'Activity Monitor Virtual Memory Counters';
     } else if (osType.includes('linux')) {
@@ -1051,42 +1102,83 @@ function renderModalChartFromData(type, param, timelineRange, points, summary = 
       ramSubtitle = 'Windows Memory Manager Counters';
     }
 
+    if (osType.includes('win')) {
+      breakdownCards = `
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">In Use (Working Set)</span>
+          <span class="font-mono font-bold text-emerald-400">${ram.app_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Non-paged Pool</span>
+          <span class="font-mono font-bold text-amber-400">${ram.wired_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Paged Pool</span>
+          <span class="font-mono font-bold text-purple-400">${ram.compressed_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">System Cache</span>
+          <span class="font-mono font-bold text-slate-200">${ram.cached_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Physical RAM</span>
+          <span class="font-mono font-bold text-slate-200">${ram.total_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Available RAM</span>
+          <span class="font-mono font-bold text-emerald-300">${ram.available_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Pagefile on Disk</span>
+          <span class="font-mono font-bold text-sky-400">${ram.swap_used_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Committed Memory</span>
+          <span class="font-mono font-bold text-indigo-400">${ram.commit_total_human && ram.commit_limit_human ? ram.commit_total_human + ' / ' + ram.commit_limit_human : (ram.memory_pressure || 'Normal')}</span>
+        </div>
+      `;
+    } else {
+      breakdownCards = `
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">App Memory</span>
+          <span class="font-mono font-bold text-emerald-400">${ram.app_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Wired Memory</span>
+          <span class="font-mono font-bold text-amber-400">${ram.wired_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Compressed</span>
+          <span class="font-mono font-bold text-purple-400">${ram.compressed_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Cached Files</span>
+          <span class="font-mono font-bold text-slate-200">${ram.cached_memory_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Physical RAM</span>
+          <span class="font-mono font-bold text-slate-200">${ram.total_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Available Free</span>
+          <span class="font-mono font-bold text-emerald-300">${ram.available_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Swap Used</span>
+          <span class="font-mono font-bold text-sky-400">${ram.swap_used_human || '--'}</span>
+        </div>
+        <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
+          <span class="text-[10px] text-slate-400 uppercase block">Memory Pressure</span>
+          <span class="font-mono font-bold text-emerald-400">${ram.memory_pressure || 'Normal'}</span>
+        </div>
+      `;
+    }
+
     subBreakdown.innerHTML = `
       <div class="bg-slate-800/30 border border-slate-800 rounded-2xl p-4">
         <span class="text-xs uppercase font-semibold text-slate-300 block mb-3">${ramSubtitle}</span>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center text-xs">
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">App Memory</span>
-            <span class="font-mono font-bold text-emerald-400">${ram.app_memory_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Wired Memory</span>
-            <span class="font-mono font-bold text-amber-400">${ram.wired_memory_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Compressed</span>
-            <span class="font-mono font-bold text-purple-400">${ram.compressed_memory_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Cached Files</span>
-            <span class="font-mono font-bold text-slate-200">${ram.cached_memory_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Physical RAM</span>
-            <span class="font-mono font-bold text-slate-200">${ram.total_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Available Free</span>
-            <span class="font-mono font-bold text-emerald-300">${ram.available_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Swap Used</span>
-            <span class="font-mono font-bold text-sky-400">${ram.swap_used_human || '--'}</span>
-          </div>
-          <div class="bg-slate-800/60 border border-slate-700/40 rounded-xl p-2.5">
-            <span class="text-[10px] text-slate-400 uppercase block">Memory Pressure</span>
-            <span class="font-mono font-bold text-emerald-400">${ram.memory_pressure || 'Normal'}</span>
-          </div>
+          ${breakdownCards}
         </div>
       </div>
     `;
@@ -1098,8 +1190,8 @@ function renderModalChartFromData(type, param, timelineRange, points, summary = 
     iconContainer.className = 'w-10 h-10 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center border border-sky-500/20';
     iconContainer.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3V7c0-2-1.5-3-3.5-3h-9C5.5 4 4 5 4 7zm0 5h16"/></svg>`;
 
-    const readCoords = chartPoints.map(p => ({ x: getPointTs(p), y: Number((getPointDiskReadSec(p) / 1000000).toFixed(2)) }));
-    const writeCoords = chartPoints.map(p => ({ x: getPointTs(p), y: Number((getPointDiskWriteSec(p) / 1000000).toFixed(2)) }));
+    const readCoords = chartPoints.map(p => ({ x: getPointTs(p), y: Number((getPointDiskReadSec(p) / 1048576).toFixed(2)) }));
+    const writeCoords = chartPoints.map(p => ({ x: getPointTs(p), y: Number((getPointDiskWriteSec(p) / 1048576).toFixed(2)) }));
     const readMBVals = readCoords.map(c => c.y);
     const writeMBVals = writeCoords.map(c => c.y);
 
