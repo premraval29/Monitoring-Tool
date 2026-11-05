@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PulseMon — System & Database Monitor</title>
+  <!-- Suppress Tailwind Play CDN production advisory -->
+  <script>
+    (function() {
+      const origWarn = console.warn;
+      console.warn = function(...args) {
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return;
+        origWarn.apply(console, args);
+      };
+    })();
+  </script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Tailwind Dark Mode Config -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            },
+            darkBg: '#0f172a',
+            darkCard: '#1e293b',
+            darkBorder: '#334155'
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-base font-bold tracking-tight text-white">PulseMon</h1>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 font-medium border border-indigo-500/20">v1.1</span>
+          <span class="text-xs text-slate-400 hidden sm:inline">• Uptime: <span id="uptime-val" class="font-mono text-slate-300">--</span></span>
+        </div>
+        <p class="text-xs text-slate-400" id="host-spec-line">Initializing host specifications...</p>
+      </div>
+    </div>
+
+    <!-- Header Right Controls: Cadence & Alert Center -->
+    <div class="flex items-center space-x-3">
+      <!-- Refresh Cadence Selector -->
+      <div class="flex items-center space-x-2 bg-slate-800/80 border border-slate-700/60 rounded-xl px-3 py-1.5 text-xs text-slate-300 hover:border-slate-600 transition shadow-sm">
+        <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span class="text-slate-400 font-medium">Update:</span>
+        <select id="update-cadence-select" class="bg-transparent text-white font-semibold focus:outline-none cursor-pointer">
+          <option value="1" class="bg-slate-900 text-white">1 sec (Realtime)</option>
+          <option value="5" class="bg-slate-900 text-white">5 sec</option>
+          <option value="10" class="bg-slate-900 text-white">10 sec</option>
+          <option value="30" class="bg-slate-900 text-white">30 sec</option>
+          <option value="60" class="bg-slate-900 text-white">1 min</option>
+          <option value="120" class="bg-slate-900 text-white">2 min</option>
+          <option value="300" class="bg-slate-900 text-white">5 min</option>
+        </select>
+        <span id="update-pulse-indicator" class="w-2 h-2 rounded-full bg-emerald-400 transition-opacity duration-300 opacity-0" title="Metrics update pulse"></span>
+      </div>
+
+      <!-- Alerts Notification Bell & Popover Center -->
+      <div class="relative">
+        <button id="alert-notifications-btn" type="button" aria-label="System Alerts" class="relative flex items-center justify-center p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition shadow-sm focus:outline-none">
+          <!-- Bell Icon -->
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          </svg>
+          <!-- Badge Pill (hidden when 0 alerts) -->
+          <span id="alerts-badge-container" class="hidden absolute -top-1.5 -right-1.5 flex items-center justify-center">
+            <span id="alerts-ping-dot" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+            <span id="alerts-badge-count" class="relative inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold font-mono text-white bg-amber-500 rounded-full shadow-md">0</span>
+          </span>
+        </button>
+
+        <!-- Dropdown Popover -->
+        <div id="alerts-dropdown" class="hidden absolute right-0 top-full mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl shadow-black/80 z-50 overflow-hidden transform transition-all duration-150 origin-top-right">
+          <!-- Dropdown Header -->
+          <div class="px-4 py-3 bg-slate-800/50 border-b border-slate-800/80 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-bold text-white uppercase tracking-wider">Alerts & Notifications</span>
+              <span id="alerts-status-tag" class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700/60">0 Active</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <button id="alerts-clear-resolved-btn" type="button" class="hidden text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition">Clear Resolved</button>
+              <button id="alerts-email-header-btn" type="button" class="text-[10px] font-semibold text-emerald-400 hover:text-emerald-300 px-2 py-0.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition flex items-center space-x-1" title="Email Alert Settings">
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                <span>Email</span>
+              </button>
+              <button id="alerts-configure-header-btn" type="button" class="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 px-2 py-0.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 transition">Edit Limits</button>
+              <button id="alerts-close-btn" type="button" class="text-slate-400 hover:text-white text-xs p-1 rounded-lg hover:bg-slate-800 transition">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dropdown List Body -->
+          <div id="alerts-dropdown-list" class="p-3 max-h-80 overflow-y-auto space-y-2.5">
+            <!-- Dynamically populated or empty state -->
+          </div>
+
+          <!-- Dropdown Footer -->
+          <div class="px-4 py-2.5 bg-slate-950/60 border-t border-slate-800/80 text-[10px] text-slate-500 flex items-center justify-between">
+            <span id="alerts-footer-thresholds-text">Thresholds: CPU ≥90% • RAM ≥90% • Disk ≥85%</span>
+            <button id="alerts-configure-footer-btn" type="button" class="text-indigo-400 hover:text-indigo-300 font-semibold text-[10px] transition">⚙️ Configure</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Warning Limits Settings Button -->
+      <button id="settings-btn" type="button" aria-label="Configure Limits" title="Configure Warning Limits" class="flex items-center justify-center p-2 rounded-xl bg-slate-800/80 border border-slate-700/60 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition shadow-sm focus:outline-none">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+    <!-- KPI Metric Cards Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- CPU Metric Card -->
+      <div id="card-cpu" data-modal-type="cpu" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 transition cursor-pointer group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wider group-hover:text-white transition">CPU Utilization</span>
+            <svg class="w-3 h-3 text-slate-500 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          </div>
+          <span class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 group-hover:bg-indigo-500/20 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+          </span>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="cpu-total-percent" class="text-3xl font-extrabold text-white tracking-tight">0.0%</span>
+          <span id="cpu-core-count" class="text-xs text-slate-400">(-- cores)</span>
+        </div>
+
+        <!-- Activity Monitor Breakdown Pills (User / System / Idle) -->
+        <div class="flex items-center space-x-2 text-[10px] font-mono mt-2 text-slate-400">
+          <span class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/60">User: <strong id="cpu-user-val" class="text-indigo-400">0%</strong></span>
+          <span class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/60">Sys: <strong id="cpu-sys-val" class="text-sky-400">0%</strong></span>
+          <span class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/60">Idle: <strong id="cpu-idle-val" class="text-slate-300">100%</strong></span>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
+          <div id="cpu-progress-bar" class="bg-indigo-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-center text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+          <span>Load Avg:</span>
+          <span id="cpu-load-avg" class="font-mono text-slate-300">0.0, 0.0, 0.0</span>
+        </div>
+      </div>
+
+      <!-- RAM Metric Card (100% Activity Monitor Alignment) -->
+      <div id="card-ram" data-modal-type="ram" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 transition cursor-pointer group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wider group-hover:text-white transition">Memory (RAM)</span>
+            <svg class="w-3 h-3 text-slate-500 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          </div>
+          <span id="ram-pressure-badge" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Pressure: Normal</span>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="ram-percent" class="text-3xl font-extrabold text-white tracking-tight">0.0%</span>
+          <span id="ram-usage-text" class="text-xs text-slate-400">0.00 / 0.00 GB</span>
+        </div>
+
+        <!-- Activity Monitor Breakdown Pills (App / Wired / Comp / Cache / Swap) -->
+        <div class="grid grid-cols-5 gap-1 text-[9px] font-mono mt-2 text-slate-400 text-center">
+          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="App Memory">App: <strong id="ram-app-val" class="text-emerald-400">--</strong></span>
+          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Wired Memory">Wire: <strong id="ram-wired-val" class="text-amber-400">--</strong></span>
+          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Compressed Memory">Comp: <strong id="ram-comp-val" class="text-purple-400">--</strong></span>
+          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Cached Files">Cache: <strong id="ram-cached-val" class="text-slate-300">--</strong></span>
+          <span class="px-1 py-0.5 rounded bg-slate-800 border border-slate-700/60" title="Swap Used">Swap: <strong id="ram-swap-used-val" class="text-sky-300">--</strong></span>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
+          <div id="ram-progress-bar" class="bg-emerald-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-center text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+          <span>Physical: <strong id="ram-total-val" class="font-mono text-slate-300">8.00 GB</strong></span>
+          <span>Available: <strong id="ram-available-val" class="font-mono text-slate-300">--</strong></span>
+        </div>
+      </div>
+
+      <!-- Disk Activity & I/O Card (Activity Monitor Aligned) -->
+      <div id="card-disk" data-modal-type="disk" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 transition cursor-pointer group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wider group-hover:text-white transition">Disk Activity (I/O)</span>
+            <svg class="w-3 h-3 text-slate-500 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          </div>
+          <span class="p-1.5 rounded-lg bg-sky-500/10 text-sky-400 group-hover:bg-sky-500/20 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2 1.5 3 3.5 3h9c2 0 3.5-1 3.5-3V7c0-2-1.5-3-3.5-3h-9C5.5 4 4 5 4 7zm0 5h16"/></svg>
+          </span>
+        </div>
+
+        <!-- Real-time Throughput (Read / Write per sec) -->
+        <div class="grid grid-cols-2 gap-2 text-xs mb-2.5">
+          <div class="bg-slate-800/50 p-2 rounded-xl border border-slate-700/40">
+            <span class="text-[10px] text-slate-400 block uppercase">Data read / sec</span>
+            <span id="disk-read-rate" class="text-sm font-mono font-bold text-sky-400">0 B/s</span>
+          </div>
+          <div class="bg-slate-800/50 p-2 rounded-xl border border-slate-700/40">
+            <span class="text-[10px] text-slate-400 block uppercase">Data write / sec</span>
+            <span id="disk-write-rate" class="text-sm font-mono font-bold text-amber-400">0 B/s</span>
+          </div>
+        </div>
+
+        <!-- Real-time IOPS (Reads/sec & Writes/sec) -->
+        <div class="flex items-center justify-between text-[11px] font-mono text-slate-300 py-1 border-t border-slate-800/80">
+          <span class="text-slate-400">Reads in / sec: <strong id="disk-read-iops" class="text-sky-300">0 /s</strong></span>
+          <span class="text-slate-400">Writes out / sec: <strong id="disk-write-iops" class="text-amber-300">0 /s</strong></span>
+        </div>
+
+        <!-- Lifetime Totals (Data read & written since boot) -->
+        <div class="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-1.5 border-t border-slate-800/80">
+          <span>Read: <strong id="disk-total-read" class="text-slate-200">--</strong></span>
+          <span>Written: <strong id="disk-total-written" class="text-slate-200">--</strong></span>
+        </div>
+
+        <!-- Lifetime Operations Count -->
+        <div class="flex items-center justify-between text-[10px] font-mono text-slate-500 pt-1">
+          <span>Ops: <strong id="disk-total-read-count" class="text-slate-400">--</strong> r</span>
+          <span><strong id="disk-total-write-count" class="text-slate-400">--</strong> w</span>
+        </div>
+      </div>
+
+      <!-- Swap Memory Card -->
+      <div id="card-swap" data-modal-type="swap" class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm hover:border-indigo-500/50 hover:shadow-lg hover:shadow-indigo-500/5 transition cursor-pointer group">
+        <div class="flex items-center justify-between text-slate-400 mb-3">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wider group-hover:text-white transition">Swap Memory</span>
+            <svg class="w-3 h-3 text-slate-500 group-hover:text-indigo-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+          </div>
+          <span class="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+          </span>
+        </div>
+        <div class="flex items-baseline space-x-2">
+          <span id="swap-percent" class="text-3xl font-extrabold text-white tracking-tight">0.0%</span>
+          <span id="swap-usage-text" class="text-xs text-slate-400">0 / 0 GB</span>
+        </div>
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-3 overflow-hidden">
+          <div id="swap-progress-bar" class="bg-purple-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="flex justify-between items-center text-xs text-slate-400 mt-3 pt-3 border-t border-slate-800/80">
+          <span>Total Swap:</span>
+          <span id="swap-total-val" class="font-mono text-slate-300">--</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Live Performance Chart -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200">Real-time Performance</h2>
+          <p class="text-xs text-slate-400">Live CPU (User + System) and RAM utilization stream</p>
+        </div>
+        <div class="flex items-center space-x-4 text-xs">
+          <span class="flex items-center space-x-1.5 text-slate-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+            <span>CPU %</span>
+          </span>
+          <span class="flex items-center space-x-1.5 text-slate-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span>RAM %</span>
+          </span>
+        </div>
+      </div>
+      <div class="h-64 w-full">
+        <canvas id="livePerformanceChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Database Monitoring Section -->
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <h2 class="text-base font-bold text-white tracking-tight">Database Instances</h2>
+          <span class="text-xs text-slate-400">(Configured in config.yaml)</span>
+        </div>
+      </div>
+
+      <div id="databases-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center text-slate-500 text-xs">
+          Loading database monitors...
+        </div>
+      </div>
+    </section>
+
+    <!-- Disks & Partitions Section -->
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-white tracking-tight">Storage & Mounted Volumes</h2>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-800/60 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+              <tr>
+                <th class="py-3 px-4">Volume Name</th>
+                <th class="py-3 px-4">Mount Point</th>
+                <th class="py-3 px-4">Device</th>
+                <th class="py-3 px-4">FS Type</th>
+                <th class="py-3 px-4">Usage</th>
+                <th class="py-3 px-4">Used / Total</th>
+                <th class="py-3 px-4">Free Space</th>
+              </tr>
+            </thead>
+            <tbody id="disks-table-body" class="divide-y divide-slate-800/60 text-slate-300">
+              <tr>
+                <td colspan="7" class="py-4 text-center text-slate-500">Scanning drives and mounts...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Detailed Analytics Drill-Down Modal -->
+  <div id="analytics-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden opacity-0 transition-opacity duration-200">
+    <div id="analytics-modal-content" class="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full p-6 sm:p-7 shadow-2xl overflow-hidden transform scale-95 transition-transform duration-200 flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center space-x-3">
+          <div id="modal-icon-container" class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+            <!-- Icon injected dynamically -->
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <h3 id="modal-title" class="text-base font-bold text-white tracking-tight">Analytics</h3>
+              <span id="modal-badge" class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">Live</span>
+            </div>
+            <p id="modal-subtitle" class="text-xs text-slate-400">Detailed metric telemetry and performance history</p>
+          </div>
+        </div>
+
+        <!-- Close Button -->
+        <button id="modal-close-btn" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition focus:outline-none" aria-label="Close modal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <!-- Scrollable Body -->
+      <div class="overflow-y-auto pr-1 mt-4 space-y-5 flex-1">
+        
+        <!-- Quick Stats Grid (Current, Average, Peak, Low) -->
+        <div id="modal-stats-grid" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-3">
+            <span class="text-[10px] uppercase font-semibold text-slate-400 block tracking-wider">Current</span>
+            <span id="modal-stat-current" class="text-lg font-mono font-extrabold text-white">--</span>
+          </div>
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-3">
+            <span class="text-[10px] uppercase font-semibold text-slate-400 block tracking-wider">Session Avg</span>
+            <span id="modal-stat-avg" class="text-lg font-mono font-extrabold text-indigo-400">--</span>
+          </div>
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-3">
+            <span class="text-[10px] uppercase font-semibold text-slate-400 block tracking-wider">Peak High</span>
+            <span id="modal-stat-peak" class="text-lg font-mono font-extrabold text-rose-400">--</span>
+          </div>
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-3">
+            <span class="text-[10px] uppercase font-semibold text-slate-400 block tracking-wider">Session Low</span>
+            <span id="modal-stat-low" class="text-lg font-mono font-extrabold text-emerald-400">--</span>
+          </div>
+        </div>
+
+        <!-- Main Detailed Chart Canvas -->
+        <div class="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4">
+          <!-- Timeline Range Segmented Bar & Status -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800/80">
+            <div id="modal-timeline-selector" class="flex items-center space-x-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+              <button type="button" data-timeline-range="live" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition bg-emerald-600 text-white shadow-sm flex items-center space-x-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                <span>Live</span>
+              </button>
+              <button type="button" data-timeline-range="5m" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">5m</button>
+              <button type="button" data-timeline-range="15m" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">15m</button>
+              <button type="button" data-timeline-range="1h" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">1h</button>
+              <button type="button" data-timeline-range="5h" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">5h</button>
+              <button type="button" data-timeline-range="24h" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">24h</button>
+              <button type="button" data-timeline-range="all" class="timeline-pill px-2.5 py-1 rounded-lg font-medium transition text-slate-400 hover:text-white hover:bg-slate-800">All Time</button>
+            </div>
+            <div id="modal-timeline-status" class="flex items-center space-x-2 text-xs font-mono text-slate-400">
+              <span id="modal-timeline-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span id="modal-timeline-text">Live Streaming (Oscilloscope)</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-1 mb-2">
+            <div class="flex items-center space-x-2">
+              <span id="modal-chart-heading" class="text-xs font-semibold uppercase tracking-wider text-slate-300">Telemetry History</span>
+              <span id="modal-chart-window-text" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-indigo-300">Live Window</span>
+            </div>
+            <div id="modal-legend" class="flex items-center space-x-3 text-xs text-slate-400"></div>
+          </div>
+          <div class="h-64 sm:h-72 w-full relative">
+            <canvas id="modalDetailedChart"></canvas>
+          </div>
+        </div>
+
+        <!-- Sub-Breakdown Section (Injected dynamically for CPU cores, RAM categories, etc.) -->
+        <div id="modal-sub-breakdown" class="space-y-3"></div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Warning Limits Configuration Modal -->
+  <div id="thresholds-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden opacity-0 transition-opacity duration-200">
+    <div id="thresholds-modal-content" class="bg-slate-900 border border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl overflow-hidden transform scale-95 transition-transform duration-200 flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white tracking-tight">Alerts & Notification Settings</h3>
+            <p class="text-xs text-slate-400">Configure threshold limits & Mailjet email notifications</p>
+          </div>
+        </div>
+        <button id="thresholds-close-btn" type="button" class="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Navigation Tabs (Thresholds vs Email) -->
+      <div class="flex items-center space-x-2 border-b border-slate-800/80 pt-2 mb-1">
+        <button id="modal-tab-thresholds-btn" type="button" class="px-4 py-2.5 text-xs font-bold text-indigo-400 border-b-2 border-indigo-500 transition flex items-center space-x-2 focus:outline-none">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+          <span>Warning Limits</span>
+        </button>
+        <button id="modal-tab-email-btn" type="button" class="px-4 py-2.5 text-xs font-bold text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition flex items-center space-x-2 focus:outline-none">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          <span>Email Notifications (Mailjet)</span>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="py-4 overflow-y-auto max-h-[60vh] pr-1">
+        
+        <!-- Tab Pane 1: Thresholds & Duration -->
+        <div id="tab-pane-thresholds" class="space-y-4">
+
+          <!-- Sustained Continuous Window (Hysteresis) -->
+          <div class="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-indigo-400"></span>
+                <label for="thresh-duration-range" class="text-xs font-bold text-white uppercase tracking-wider">Sustained Alert Window (Hysteresis)</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-duration-num" min="5" max="600" step="5" class="w-14 bg-transparent text-right font-mono font-bold text-xs text-indigo-400 focus:outline-none">
+                <span class="text-xs text-slate-400">sec</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">A metric must breach continuously for this long to fire, and stay below limit continuously for this long to resolve (default 90s).</p>
+            <input type="range" id="thresh-duration-range" min="5" max="300" step="5" class="w-full accent-indigo-500 cursor-pointer">
+          </div>
+
+          <!-- CPU Threshold Item -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-indigo-400"></span>
+                <label for="thresh-cpu-range" class="text-xs font-bold text-white uppercase tracking-wider">CPU Utilization</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-cpu-num" min="10" max="100" step="1" class="w-12 bg-transparent text-right font-mono font-bold text-xs text-indigo-400 focus:outline-none">
+                <span class="text-xs text-slate-400">%</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Alert triggers when total CPU load reaches or exceeds this percentage.</p>
+            <input type="range" id="thresh-cpu-range" min="10" max="100" step="1" class="w-full accent-indigo-500 cursor-pointer">
+          </div>
+
+          <!-- RAM Threshold Item -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+                <label for="thresh-ram-range" class="text-xs font-bold text-white uppercase tracking-wider">Physical Memory (RAM)</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-ram-num" min="10" max="100" step="1" class="w-12 bg-transparent text-right font-mono font-bold text-xs text-emerald-400 focus:outline-none">
+                <span class="text-xs text-slate-400">%</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Alert triggers when used physical memory percentage crosses this limit.</p>
+            <input type="range" id="thresh-ram-range" min="10" max="100" step="1" class="w-full accent-emerald-500 cursor-pointer">
+          </div>
+
+          <!-- Disk Storage Threshold Item -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                <label for="thresh-disk-range" class="text-xs font-bold text-white uppercase tracking-wider">Storage & Mounted Volumes</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-disk-num" min="10" max="100" step="1" class="w-12 bg-transparent text-right font-mono font-bold text-xs text-amber-400 focus:outline-none">
+                <span class="text-xs text-slate-400">%</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Alert triggers when any local drive partition space usage meets this threshold.</p>
+            <input type="range" id="thresh-disk-range" min="10" max="100" step="1" class="w-full accent-amber-500 cursor-pointer">
+          </div>
+
+          <!-- Swap Memory Threshold Item -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span>
+                <label for="thresh-swap-range" class="text-xs font-bold text-white uppercase tracking-wider">Swap Memory Usage</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-swap-num" min="10" max="100" step="1" class="w-12 bg-transparent text-right font-mono font-bold text-xs text-purple-400 focus:outline-none">
+                <span class="text-xs text-slate-400">%</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Alert triggers when virtual swap allocation exceeds this threshold.</p>
+            <input type="range" id="thresh-swap-range" min="10" max="100" step="1" class="w-full accent-purple-500 cursor-pointer">
+          </div>
+
+          <!-- Database Latency Threshold Item -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+                <label for="thresh-db-range" class="text-xs font-bold text-white uppercase tracking-wider">Database Response Latency</label>
+              </div>
+              <div class="flex items-center space-x-1.5 bg-slate-900 border border-slate-700/80 rounded-xl px-2.5 py-1">
+                <input type="number" id="thresh-db-num" min="10" max="1000" step="10" class="w-14 bg-transparent text-right font-mono font-bold text-xs text-sky-400 focus:outline-none">
+                <span class="text-xs text-slate-400">ms</span>
+              </div>
+            </div>
+            <p class="text-[11px] text-slate-400">Alert triggers when ping latency for PostgreSQL or MySQL exceeds this duration.</p>
+            <input type="range" id="thresh-db-range" min="10" max="1000" step="10" class="w-full accent-sky-500 cursor-pointer">
+          </div>
+
+        </div>
+
+        <!-- Tab Pane 2: Email Notifications (Mailjet) -->
+        <div id="tab-pane-email" class="space-y-4 hidden">
+          
+          <!-- Master Email Enable Toggle -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+            <div class="space-y-0.5">
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Enable Email Alerts</div>
+              <p class="text-[11px] text-slate-400">Dispatch alerts via Mailjet when sustained breaches or recoveries occur</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="email-enabled-checkbox" class="sr-only peer" checked>
+              <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+
+          <!-- Recipient Email Card -->
+          <div class="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label for="email-recipient-input" class="text-xs font-bold text-white uppercase tracking-wider flex items-center space-x-1.5">
+                <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/></svg>
+                <span>Alert Recipient Email</span>
+              </label>
+              <span class="text-[10px] font-mono text-indigo-400 font-semibold uppercase">Destination</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Enter the destination email address where incident notifications should be received.</p>
+            <input type="email" id="email-recipient-input" placeholder="e.g. administrator@company.com" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono transition">
+          </div>
+
+          <!-- Fixed Mailjet Verified Sender Card -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-bold text-white uppercase tracking-wider">Mailjet Verified Sender</label>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1 font-semibold">
+                <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Mailjet Authorized</span>
+              </span>
+            </div>
+            <div class="flex items-center space-x-2 bg-slate-900/90 border border-slate-700/60 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-300">
+              <svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              <span id="email-sender-display">vardhakpatel6@gmail.com</span>
+            </div>
+            <p class="text-[11px] text-slate-400">Emails are authorized through this Mailjet-verified sender address.</p>
+          </div>
+
+          <!-- Resolution Notice Checkbox -->
+          <div class="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+            <div class="space-y-0.5">
+              <div class="text-xs font-bold text-white uppercase tracking-wider">Resolution Email Notifications</div>
+              <p class="text-[11px] text-slate-400">Also send an email when an active incident recovers and returns to normal</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="email-send-resolved-checkbox" class="sr-only peer" checked>
+              <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+            </label>
+          </div>
+
+          <!-- Send Test Email Action Box -->
+          <div class="bg-slate-800/30 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-bold text-white uppercase tracking-wider">Test Mailjet Integration</div>
+                <p class="text-[11px] text-slate-400">Send an immediate test alert to verify recipient delivery</p>
+              </div>
+              <button id="email-test-btn" type="button" class="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 transition flex items-center space-x-1.5 shadow-sm">
+                <span id="email-test-spinner" class="hidden w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                <span id="email-test-text">Send Test Email</span>
+              </button>
+            </div>
+            <!-- Test Email Status Banner -->
+            <div id="email-test-status" class="hidden p-3 rounded-xl text-xs"></div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Modal Footer (Save / Reset / Cancel) -->
+      <div class="pt-4 border-t border-slate-800 flex items-center justify-between">
+        <button id="thresh-reset-btn" type="button" class="text-xs font-medium text-slate-400 hover:text-white transition flex items-center space-x-1 px-3 py-2 rounded-xl hover:bg-slate-800">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span id="thresh-reset-btn-text">Reset Defaults</span>
+        </button>
+        <div class="flex items-center space-x-2.5">
+          <button id="thresh-cancel-btn" type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition">Cancel</button>
+          <button id="thresh-save-btn" type="button" class="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition shadow-lg shadow-indigo-600/25 flex items-center space-x-1.5">
+            <span id="thresh-save-spinner" class="hidden w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+            <span id="thresh-save-text">Save Limits</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
+    <p>PulseMon — Cross-platform PC & Database Monitoring Agent • macOS / Linux / Windows</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

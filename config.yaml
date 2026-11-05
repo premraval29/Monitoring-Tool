@@ -1,0 +1,51 @@
+# PulseMon Monitoring Tool Configuration
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+  poll_interval: 1.0        # Seconds between metric samples (matches Activity Monitor)
+  history_buffer_size: 3600 # Number of in-memory data points (~1 hour at 1s interval)
+
+storage:
+  enabled: true
+  db_path: "data/pulse_metrics.db"
+  retention_days: 7         # Historical telemetry retention in SQLite store (~20 MB)
+
+databases:
+  postgresql:
+    enabled: true
+    name: "Primary PostgreSQL"
+    host: "127.0.0.1"
+    port: 5432
+    user: "postgres"
+    password: ""
+    database: "postgres"
+    timeout: 3.0
+
+  mysql:
+    enabled: true
+    name: "Primary MySQL"
+    host: "127.0.0.1"
+    port: 3307              # Detected from /opt/homebrew/etc/my.cnf
+    user: "root"
+    password: "Root1234!"
+    database: "mysql"
+    timeout: 3.0
+
+alerts:
+  duration_seconds: 90.0
+  cpu_threshold_percent: 90.0
+  ram_threshold_percent: 90.0
+  disk_threshold_percent: 85.0
+  swap_threshold_percent: 80.0
+  db_latency_threshold_ms: 200.0
+
+email:
+  enabled: true
+  provider: "mailjet"
+  api_key: "29d0b23ae14c1227ac447b6b3f9d7036"
+  secret_key: "cbedbdce0fedb02cc97043fc49262081"
+  sender_email: "vardhakpatel6@gmail.com"
+  sender_name: "PulseMon Alert Manager"
+  recipient_email: ""
+  send_on_resolved: true
